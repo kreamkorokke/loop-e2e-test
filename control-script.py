@@ -5,39 +5,25 @@ import pexpect
 import sys
 import re
 
-
-def clean_up_message_logs(client):
-	# clean up the previous message logs
-	messages = client.messages.list()
-	for i in range(0, len(messages)):
-		client.messages.delete(messages[i].sid)
-
-def run_msisdn_cli(client, cli_command, gateway_number, test_number):
-	# spawn a worker for msisdn-cli
-	worker = pexpect.spawn("bash")
-	worker.logfile = sys.stdout
-	worker.sendline("cd ./msisdn-cli; virtualenv .venv; . .venv/bin/activate; python ./setup.py develop")
-	worker.sendline(cli_command)
-	print("Executing command: " + cli_command)
-
-	# retrieve the verification message
-	worker.expect("Please\senter\sthe\scode\sthat\syou\swill\sget\sby\sSMS\sfrom\s")
-	message_log = client.messages.list(gateway_number, test_number, time.strftime("%Y-%m-%d", time.gmtime()))
-	while not message_log:
-		time.sleep(1)
-		message_log = client.messages.list(gateway_number, test_number, time.strftime("%Y-%m-%d", time.gmtime()))
-	verification_message = message_log[0].body
-
-	# extract the code
-	match = re.search("^Your\sverification\scode\sis:\s(\d\d\d\d\d\d)", verification_message)
-	worker.sendline(match.group(1))
-	worker.expect("Verified")
-	print("++++++++++++++++++++ Number: " + test_number + " VERIFIED +++++++++++++++++++")
-
 def main():
+	# spin up the caller test case and get the room url
 	caller = pexpect.spawn("bash")
 	caller.logfile = sys.stdout
-	caller.sendline("")
+	caller.sendline("cd ../firefox-42.0a1.en-US.mac.tests/marionette/marionette; python runtests.py --binary=/Applications/Firefox.app/Contents/MacOS/firefox-bin --address=localhost:2828 --type=browser ../../../loop-e2e-test/caller_case.ini")
+	caller.expect("Give a GO sign")
+	match = re.search("The\sroom\surl\sis:\s(http.+)", caller.before)
+	room_url = match.group(1)
+
+	# spin up the recipient test case to join the room
+	recipient = pexpect.spawn("bash")
+	recipient.logfile = sys.stdout
+	recipient.sendline("cd ../firefox-42.0a1.en-US.mac.tests/marionette/marionette; python runtests.py --binary=/Applications/Firefox.app/Contents/MacOS/firefox-bin --address=localhost:2829 --type=browser ../../../loop-e2e-test/recipient_case.ini")
+	recipient.sendline(room_url)
+	recipient.expect("Done?")
+
+	# room established, kill test cases
+	caller.sendline("GO")
+	recipient.sendline("done")
 
 if __name__ == "__main__":
 	main()
